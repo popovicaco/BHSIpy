@@ -1,0 +1,12 @@
+cvxpy==1.2.1
+keras==2.9.0
+matplotlib==3.5.2
+numpy==1.23.1
+opencv_python==4.6.0.66
+plotly==5.10.0
+scikit_image==0.19.3
+scikit_learn==1.1.2
+scipy==1.9.0
+skimage==0.0
+spectral==0.22.4
+tensorflow==2.9.1
