@@ -23,7 +23,7 @@ tensorflow==2.9.1
 ---
 # Acknowledgments
 
-This package was created by Xuanze Li at University of Toronto, Hannah Johnson at Ohio State University, and Aleksandar Popovic at Toronto Metropolitan University, under the supervision of Dr. Na Yu and Dr. You Liang of Toronto Metropolitan University. This project was part of the Fields Undergraduate Summer Research Program in Toronto, Ontario. 
+This package was created by Aleksandar Popovic at Toronto Metropolitan University, Xuanze Li at University of Toronto and Hannah Johnson at Ohio State University, under the supervision of Dr. Na Yu and Dr. You Liang of Toronto Metropolitan University. This project was part of the Fields Undergraduate Summer Research Program in Toronto, Ontario. 
 
 ---
 # Presentation Link
