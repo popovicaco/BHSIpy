@@ -1,3 +1,4 @@
+from re import I
 import os
 import cv2
 import tensorflow as tf
@@ -6,9 +7,10 @@ from keras.utils import np_utils
 from skimage.transform import resize
 from skimage.io import imsave
 import numpy as np
+from keras import regularizers
 from keras.preprocessing.image import ImageDataGenerator
 from keras.models import Model
-from keras.layers import Input, Conv3D, Reshape, concatenate, Conv2D, MaxPooling3D, Conv3DTranspose, Flatten, Dense, BatchNormalization, MaxPooling2D, Conv2DTranspose
+from keras.layers import Input, Conv3D, Reshape, concatenate, Conv2D, MaxPooling3D, Conv3DTranspose, Flatten, Dense, BatchNormalization, MaxPooling2D, Conv2DTranspose, Add
 from keras.layers.core import Dropout
 from keras.callbacks import ModelCheckpoint
 from keras import backend as K
@@ -35,10 +37,9 @@ class U_Net:
           num_components_to_keep: number of bands to keep
           reduced_size_x_y: used to rescale the image to a square image, for training purposes
   """
-  def __init__(self, dataset = 'Pavia_University', test_ratio = 0.7, window_size = 25, num_epochs = 1000, num_components_to_keep = 10, reduced_size_x_y = 320, n_features = 5, batch_size = 128, mask_length = 25, num_masks = 10, pre_load_dataset = False, layer_normalization = True):
+  def __init__(self, dataset = 'Pavia_University', test_ratio = 0.7, num_epochs = 1000, num_components_to_keep = 10, reduced_size_x_y = 320, n_features = 5, batch_size = 128, mask_length = 25, num_masks = 10, pre_load_dataset = False, layer_normalization = True, max_pca_iterations = 30, override_pca_iterations = False, dropout_rate = 0.1):
     self.dataset = dataset
     self.test_ratio = test_ratio
-    self.window_size = window_size
     self.num_epochs = num_epochs
     self.num_components_to_keep = num_components_to_keep
     self.reduced_size_x_y = reduced_size_x_y
@@ -54,6 +55,9 @@ class U_Net:
     self.y_validation = None
     self.y_test = None
     self.layer_normalization = layer_normalization
+    self.max_pca_iterations = max_pca_iterations
+    self.override_pca_iterations = override_pca_iterations
+    self.dropout_rate = dropout_rate
 
   def DataLoader(self, dataset):
     '''
@@ -68,7 +72,7 @@ class U_Net:
         Data = scipy.io.loadmat(os.path.join(data_path, 'Dataset/BiomedicalDenoisedEyeData4Endmembers.mat'))['hyperspectral_image']
         Ground_Truth = scipy.io.loadmat(os.path.join(data_path, 'Dataset/BiomedicalDenoisedEyeData4Endmembers.mat'))['ground_truth']
     return Data, Ground_Truth
-  
+
   def Layer_Normalization(self, hyperspectral_image):
     '''
     This method performs layer-wise normalization on the input data.
@@ -82,70 +86,6 @@ class U_Net:
           normalized_HSI_cube[i,j,k] = (hyperspectral_image[i,j,k] - x_k_min)/(x_k_max - x_k_min)
     return normalized_HSI_cube
 
-  def Spatial_Transform_Data_Augmentation(self, original_hyperspectral_image, original_hyperspectral_image_segmentation_labels, mask_length = 25, num_masks = 10):
-    """
-    This method applied spatial transform to augment training data.
-    """
-    augmented_data = []
-    augmented_labels = []
-    rotation_angles = list(range(0, 360, 15)) # Rotate 15 degrees each
-    for i in range(len(rotation_angles)):
-      rotated_hyperspectral_image = rotate(original_hyperspectral_image, angle=rotation_angles[i], axes=(0, 1), reshape=False, mode = "grid-constant", order = 0)  # rotates the image by 45 degrees
-      left_right_flipped_image = np.fliplr(rotated_hyperspectral_image)  # horizontal flip
-      up_down_flipped_image = np.flipud(rotated_hyperspectral_image)  # vertical flip
-      augmented_data.append(rotated_hyperspectral_image)
-      augmented_data.append(left_right_flipped_image)
-      augmented_data.append(up_down_flipped_image)
-      rotated_hyperspectral_image_labels = rotate(original_hyperspectral_image_segmentation_labels, angle=rotation_angles[i], axes=(0, 1), reshape=False, mode = "grid-constant", order = 0)  # rotates the labels by 45 degrees
-      left_right_flipped_image = np.fliplr(rotated_hyperspectral_image_labels)  # horizontal flip
-      up_down_flipped_image = np.flipud(rotated_hyperspectral_image_labels)  # vertical flip
-      augmented_labels.append(rotated_hyperspectral_image_labels)
-      augmented_labels.append(left_right_flipped_image)
-      augmented_labels.append(up_down_flipped_image)
-
-    augmented_masked_data = []
-    augmented_masked_labels = []
-    # Create Masked Datasets
-    for i in range(len(augmented_data)):
-      height, width, channels = augmented_data[i].shape
-      height_labels, width_labels = augmented_labels[i].shape
-      for j in range(num_masks):
-        new_mask = np.zeros((height, width), dtype=bool)
-        x_random = np.random.randint(low = 0, high = width - mask_length)
-        y_random = np.random.randint(low = 0, high = height - mask_length)
-        new_mask[x_random:x_random + mask_length, y_random:y_random + mask_length] = True
-        masked_image = np.ma.masked_array(augmented_data[i], mask=np.repeat(new_mask[:, :, np.newaxis], channels, axis=2))
-        augmented_masked_data.append(masked_image.mask*augmented_data[i])
-        augmented_masked_labels.append(new_mask*augmented_labels[i])
-    return np.array(augmented_masked_data, dtype=object), np.array(augmented_masked_labels, dtype=object)
-
-  def DataPreprocessing(self, X, y):
-    '''
-    This Method internally preprocess the input dataset to 3-d Hyper U-Net acceptable format.
-    '''
-    n_features = self.n_features
-    num_iterations = X.shape[0]
-    feature_encoded_data = np.zeros((X[0].shape[0], X[0].shape[1], n_features))
-    for i, unique_value in enumerate(np.unique(y[0])):
-        feature_encoded_data[:, :, i][y[0] == unique_value] = 1
-    X_, pca = self.run_PCA(image_cube = X[0], num_principal_components = self.num_components_to_keep)
-    X_ = cv2.resize(X_, (self.reduced_size_x_y, self.reduced_size_x_y), interpolation = cv2.INTER_AREA)
-    X_after_processed = X_.reshape(-1, self.reduced_size_x_y, self.reduced_size_x_y, self.num_components_to_keep, 1)
-    feature_encoded_data = cv2.resize(feature_encoded_data, (self.reduced_size_x_y, self.reduced_size_x_y), interpolation = cv2.INTER_AREA)
-    y_after_processed = feature_encoded_data.reshape(1, self.reduced_size_x_y, self.reduced_size_x_y, n_features)
-    for j in range(1, num_iterations):
-      feature_encoded_data = np.zeros((X[j].shape[0], X[j].shape[1], n_features))
-      for k, unique_value in enumerate(np.unique(y[j])):
-          feature_encoded_data[:, :, k][y[j] == unique_value] = 1
-      X_pca, pca = self.run_PCA(image_cube = X[j], num_principal_components = self.num_components_to_keep)
-      X_pca = cv2.resize(X_pca, (self.reduced_size_x_y, self.reduced_size_x_y), interpolation = cv2.INTER_AREA)
-      X_pca = X_pca.reshape(-1, self.reduced_size_x_y, self.reduced_size_x_y, self.num_components_to_keep, 1)
-      feature_encoded_data = cv2.resize(feature_encoded_data, (self.reduced_size_x_y, self.reduced_size_x_y), interpolation = cv2.INTER_AREA)
-      y_ = feature_encoded_data.reshape(1, self.reduced_size_x_y, self.reduced_size_x_y, n_features)
-      X_after_processed = np.concatenate((X_after_processed, X_pca), axis = 0)
-      y_after_processed = np.concatenate((y_after_processed, y_), axis = 0)
-    return X_after_processed, y_after_processed
-
   def run_PCA(self, image_cube, num_principal_components = 30):
     '''
     Apply Principal Component Analysis to decompose the amount of features w.r.t their orthogonality, Default keeping 30 features.
@@ -156,6 +96,93 @@ class U_Net:
     new_cube = np.reshape(new_cube, (image_cube.shape[0], image_cube.shape[1], num_principal_components))
     return new_cube, pca
 
+  def DataPreprocessing(self, X, y):
+    '''
+    This Method internally preprocess the input dataset to its PCA reduced format.
+    '''
+    n_features = self.n_features
+    X_, pca = self.run_PCA(image_cube = X, num_principal_components = self.num_components_to_keep)
+    total_variance_explained = sum(pca.explained_variance_ratio_)
+    if self.override_pca_iterations == True:
+      pass
+    else:
+      for i in range(self.max_pca_iterations):
+        if total_variance_explained <= 0.999:
+          self.num_components_to_keep += 1
+          X_, pca = self.run_PCA(image_cube = X, num_principal_components = self.num_components_to_keep)
+          total_variance_explained = sum(pca.explained_variance_ratio_)
+        else:
+          break
+    X_ = cv2.resize(X_, (self.reduced_size_x_y, self.reduced_size_x_y))
+    X_after_preprocessed = X_.reshape(self.reduced_size_x_y, self.reduced_size_x_y, self.num_components_to_keep)
+    ground_truth_after_preprocessed = cv2.resize(y, (self.reduced_size_x_y, self.reduced_size_x_y))
+    return X_after_preprocessed, ground_truth_after_preprocessed
+
+  def Spatial_Transform_Data_Augmentation(self, original_hyperspectral_image, original_hyperspectral_image_segmentation_labels, mask_length = 25, num_masks = 10):
+    """
+    This method applied spatial transform to augment training data.
+    """
+    augmented_data = [original_hyperspectral_image]
+    augmented_labels = [original_hyperspectral_image_segmentation_labels]
+    # rotation_angles = list(range(0, 360, 15)) # Rotate 15 degrees each
+    # for i in range(len(rotation_angles)):
+    #   rotated_hyperspectral_image = rotate(original_hyperspectral_image, angle=rotation_angles[i], axes=(0, 1), reshape=False, mode = "grid-constant", order = 0)  # rotates the image by 45 degrees
+    #   left_right_flipped_image = np.fliplr(rotated_hyperspectral_image)  # horizontal flip
+    #   up_down_flipped_image = np.flipud(rotated_hyperspectral_image)  # vertical flip
+    #   augmented_data.append(rotated_hyperspectral_image)
+    #   augmented_data.append(left_right_flipped_image)
+    #   augmented_data.append(up_down_flipped_image)
+    #   rotated_hyperspectral_image_labels = rotate(original_hyperspectral_image_segmentation_labels, angle=rotation_angles[i], axes=(0, 1), reshape=False, mode = "grid-constant", order = 0)  # rotates the labels by 45 degrees
+    #   left_right_flipped_image = np.fliplr(rotated_hyperspectral_image_labels)  # horizontal flip
+    #   up_down_flipped_image = np.flipud(rotated_hyperspectral_image_labels)  # vertical flip
+    #   augmented_labels.append(rotated_hyperspectral_image_labels)
+    #   augmented_labels.append(left_right_flipped_image)
+    #   augmented_labels.append(up_down_flipped_image)
+
+    augmented_masked_data = []
+    augmented_masked_labels = []
+    # Create Masked Datasets
+    for i in range(len(augmented_data)):
+      height, width, channels = augmented_data[i].shape
+      height_labels, width_labels = augmented_labels[i].shape
+      for j in range(num_masks):
+        new_mask = np.zeros((height, width, channels), dtype=bool)
+        new_mask_labels = np.zeros((height, width), dtype=bool)
+        x_random = np.random.randint(low = 0, high = width - mask_length)
+        y_random = np.random.randint(low = 0, high = height - mask_length)
+        new_mask[x_random:(x_random + mask_length), y_random:(y_random + mask_length), :] = 1
+        new_mask_labels[x_random:(x_random + mask_length), y_random:(y_random + mask_length)] = 1
+        augmented_masked_data.append(new_mask*augmented_data[i])
+        augmented_masked_labels.append(new_mask_labels*augmented_labels[i])
+
+    return np.array(augmented_masked_data, dtype=float), np.array(augmented_masked_labels, dtype=float)
+
+  def DataProcessing(self, X, y):
+    '''
+    This Method internally preprocess the input dataset to its 3-D Hyper UNet accepted format.
+    '''
+    n_features = self.n_features
+    feature_encoded_data = np.zeros((X.shape[0], X.shape[1], n_features))
+    for i, unique_value in enumerate(np.unique(y)):
+        feature_encoded_data[:, :, i][y == unique_value] = 1
+    feature_encoded_data = cv2.resize(feature_encoded_data, (self.reduced_size_x_y, self.reduced_size_x_y))
+    X_after_processed = X.reshape(-1, self.reduced_size_x_y, self.reduced_size_x_y, self.num_components_to_keep, 1)
+    y_after_processed = feature_encoded_data.reshape(1, self.reduced_size_x_y, self.reduced_size_x_y, n_features)
+    return X_after_processed, y_after_processed
+
+  def prepare_dataset_for_training(self, X, y):
+    '''
+    This method prepares dataset for training the 3-D unet in its batch_size format.
+    '''
+    X_after_preprocessed, ground_truth_after_preprocessed = self.DataPreprocessing(X, y)
+    X_augmented, y_augmented = self.Spatial_Transform_Data_Augmentation(X_after_preprocessed, ground_truth_after_preprocessed, num_masks = self.num_masks, mask_length = self.mask_length)
+    X_after_processed, y_after_processed = self.DataProcessing(X_augmented[0], y_augmented[0])
+    for i in range(1, X_augmented.shape[0]):
+      X_, y_ = self.DataProcessing(X_augmented[i], y_augmented[i])
+      X_after_processed = np.concatenate((X_after_processed, X_), axis=0)
+      y_after_processed = np.concatenate((y_after_processed, y_), axis=0)
+    return X_after_processed, y_after_processed
+
   def build_3d_unet(self):
     '''
     This function is a tensorflow realization of the 3-d hyper U-Net model proposed by Nishchal et. al 2021.
@@ -163,75 +190,94 @@ class U_Net:
     Link: https://ieeexplore.ieee.org/document/9544725
     '''
     input_layer = Input((self.reduced_size_x_y, self.reduced_size_x_y, self.num_components_to_keep, 1))
-    convolution_layer_1 = Conv3D(32, (3, 3, 3), activation='relu', padding='same')(input_layer)
-    convolution_layer_1 = Conv3D(32, (3, 3, 3), activation='relu', padding='same')(convolution_layer_1)
+    convolution_layer_1 = Conv3D(32, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(input_layer)
+    shortcut_1 = convolution_layer_1
+    convolution_layer_1 = Conv3D(32, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_1)
+    convolution_layer_1 = Add()([shortcut_1, convolution_layer_1])
     convolution_layer_1 = BatchNormalization()(convolution_layer_1)
     pooling_layer_1 = MaxPooling3D(pool_size=(2, 2, 2), padding='same')(convolution_layer_1)
 
-    convolution_layer_2 = Conv3D(64, (3, 3, 3), activation='relu', padding='same')(pooling_layer_1)
-    convolution_layer_2 = Conv3D(64, (3, 3, 3), activation='relu', padding='same')(convolution_layer_2)
+    convolution_layer_2 = Conv3D(64, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(pooling_layer_1)
+    shortcut_2 = convolution_layer_2
+    convolution_layer_2 = Conv3D(64, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_2)
+    convolution_layer_2 = Add()([shortcut_2, convolution_layer_2])
+    convolution_layer_2 = Dropout(self.dropout_rate)(convolution_layer_2)
     convolution_layer_2 = BatchNormalization()(convolution_layer_2)
-    convolution_layer_2 = Dropout(0.1)(convolution_layer_2)
     pooling_layer_2 = MaxPooling3D(pool_size=(2, 2, 2), padding='same')(convolution_layer_2)
 
-    convolution_layer_3 = Conv3D(128, (3, 3, 3), activation='relu', padding='same')(pooling_layer_2)
-    convolution_layer_3 = Conv3D(128, (3, 3, 3), activation='relu', padding='same')(convolution_layer_3)
+    convolution_layer_3 = Conv3D(128, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(pooling_layer_2)
+    shortcut_3 = convolution_layer_3
+    convolution_layer_3 = Conv3D(128, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_3)
+    convolution_layer_3 = Add()([shortcut_3, convolution_layer_3])
+    convolution_layer_3 = Dropout(self.dropout_rate)(convolution_layer_3)
     convolution_layer_3 = BatchNormalization()(convolution_layer_3)
-    convolution_layer_3 = Dropout(0.1)(convolution_layer_3)
     pooling_layer_3 = MaxPooling3D(pool_size=(2, 2, 2), padding='same')(convolution_layer_3)
 
-    convolution_layer_4 = Conv3D(256, (3, 3, 3), activation='relu', padding='same')(pooling_layer_3)
-    convolution_layer_4 = Conv3D(256, (3, 3, 3), activation='relu', padding='same')(convolution_layer_4)
+    convolution_layer_4 = Conv3D(256, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(pooling_layer_3)
+    shortcut_4 = convolution_layer_4
+    convolution_layer_4 = Conv3D(256, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_4)
+    convolution_layer_4 = Add()([shortcut_4, convolution_layer_4])
+    convolution_layer_4 = Dropout(self.dropout_rate)(convolution_layer_4)
     convolution_layer_4 = BatchNormalization()(convolution_layer_4)
-    convolution_layer_4 = Dropout(0.1)(convolution_layer_4)
     pooling_layer_4 = MaxPooling3D(pool_size=(2, 2, 2), padding='same')(convolution_layer_4)
 
-    convolution_layer_5 = Conv3D(512, (3, 3, 3), activation='relu', padding='same')(pooling_layer_4)
-    convolution_layer_5 = Conv3D(512, (3, 3, 3), activation='relu', padding='same')(convolution_layer_5)
+    convolution_layer_5 = Conv3D(512, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(pooling_layer_4)
+    shortcut_5= convolution_layer_5
+    convolution_layer_5 = Conv3D(512, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_5)
+    convolution_layer_5 = Add()([shortcut_5, convolution_layer_5])
+    convolution_layer_5 = Dropout(self.dropout_rate)(convolution_layer_5)
     convolution_layer_5 = BatchNormalization()(convolution_layer_5)
-    convolution_layer_5 = Dropout(0.2)(convolution_layer_5)
-    convolution_layer_5 = tf.reshape(convolution_layer_5, [1, convolution_layer_5.shape[1]*convolution_layer_5.shape[2], 512, 1])
-    pooling_layer_5 = MaxPooling2D(pool_size=(2, 2), padding='same')(convolution_layer_5)
+    pooling_layer_5 = MaxPooling3D(pool_size=(2, 2, 2), padding='same')(convolution_layer_5)
 
-    convolution_layer_6 = Conv2D(1024, (3, 3), activation='relu', padding='same')(convolution_layer_5)
-    convolution_layer_6 = Conv2D(1024, (3, 3), activation='relu', padding='same')(convolution_layer_6)
+    convolution_layer_6 = Conv3D(1024, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(pooling_layer_5)
+    convolution_layer_6 = Conv3D(1024, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_6)
 
-    flatten_layer_6 = Flatten()(convolution_layer_4)
-    output_layer_1 = Dense(9, activation='softmax', name='output_layer_1')(flatten_layer_6)
+    convolution_layer_7 = concatenate([Conv3DTranspose(512, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_6), convolution_layer_5], axis=3)
+    convolution_layer_7 = Conv3D(512, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_7)
+    shortcut_7 = convolution_layer_7
+    convolution_layer_7 = Conv3D(512, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_7)
+    convolution_layer_7 = Add()([shortcut_7, convolution_layer_7])
+    convolution_layer_7 = Dropout(self.dropout_rate)(convolution_layer_7)
+    convolution_layer_7 = BatchNormalization()(convolution_layer_7)
 
-    up_layer_7 = concatenate([Conv2DTranspose(512, (2, 2), padding='same')(convolution_layer_6), convolution_layer_5], axis=3)
-    convolution_layer_7 = Conv2D(512, (3, 3), activation='relu', padding='same')(up_layer_7)
-    convolution_layer_7 = Conv2D(512, (3, 3), activation='relu', padding='same')(convolution_layer_7)
-
-    convolution_layer_5 = tf.reshape(convolution_layer_5, [1, int(math.sqrt(convolution_layer_5.shape[1])), int(math.sqrt(convolution_layer_5.shape[1])), 1, 512])
-    up_layer_8 = concatenate([Conv3DTranspose(256, (2, 2, 2), strides=(2, 2, 2), padding='same')(convolution_layer_5), convolution_layer_4], axis=3)
-    convolution_layer_8 = Conv3D(256, (3, 3, 3), activation='relu', padding='same')(up_layer_8)
-    convolution_layer_8 = Conv3D(256, (3, 3, 3), activation='relu', padding='same')(convolution_layer_8)
+    convolution_layer_8 = concatenate([Conv3DTranspose(256, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_7), convolution_layer_4], axis=3)
+    convolution_layer_8 = Conv3D(256, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_8)
+    shortcut_8 = convolution_layer_8
+    convolution_layer_8 = Conv3D(256, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_8)
+    convolution_layer_8 = Add()([shortcut_8, convolution_layer_8])
+    convolution_layer_8 = Dropout(self.dropout_rate)(convolution_layer_8)
     convolution_layer_8 = BatchNormalization()(convolution_layer_8)
-    convolution_layer_8 = Dropout(0.2)(convolution_layer_8)
 
-    up_layer_9 = concatenate([Conv3DTranspose(128, (2, 2, 2), strides=(2, 2, 2), padding='same')(convolution_layer_4), convolution_layer_3], axis=3)
-    convolution_layer_9 = Conv3D(128, (3, 3, 3), activation='relu', padding='same')(up_layer_9)
-    convolution_layer_9 = Conv3D(128, (3, 3, 3), activation='relu', padding='same')(convolution_layer_9)
+    convolution_layer_9 = concatenate([Conv3DTranspose(128, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_8), convolution_layer_3], axis=3)
+    convolution_layer_9 = Conv3D(128, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_9)
+    shortcut_9 = convolution_layer_9
+    convolution_layer_9 = Conv3D(128, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_9)
+    convolution_layer_9 = Add()([shortcut_9, convolution_layer_9])
+    convolution_layer_9 = Dropout(self.dropout_rate)(convolution_layer_9)
     convolution_layer_9 = BatchNormalization()(convolution_layer_9)
-    convolution_layer_9 = Dropout(0.1)(convolution_layer_9)
-    print(convolution_layer_9.shape)
 
-    up_layer_10 = concatenate([Conv3DTranspose(64, (2, 2, 2), strides=(2, 2, 2), padding='same')(convolution_layer_9), convolution_layer_2], axis=3)
-    convolution_layer_10 = Conv3D(64, (3, 3, 3), activation='relu', padding='same')(up_layer_10)
-    convolution_layer_10 = Conv3D(64, (3, 3, 3), activation='relu', padding='same')(convolution_layer_10)
+    convolution_layer_10 = concatenate([Conv3DTranspose(64, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_9), convolution_layer_2], axis=3)
+    convolution_layer_10 = Conv3D(64, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_10)
+    shortcut_10 = convolution_layer_10
+    convolution_layer_10 = Conv3D(64, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_10)
+    convolution_layer_10 = Add()([shortcut_10, convolution_layer_10])
+    convolution_layer_10 = Dropout(self.dropout_rate)(convolution_layer_10)
     convolution_layer_10 = BatchNormalization()(convolution_layer_10)
-    convolution_layer_10 = Dropout(0.1)(convolution_layer_10)
 
-    up_layer_11 = concatenate([Conv3DTranspose(32, (2, 2, 2), strides=(2,2, 2), padding='same')(convolution_layer_10), convolution_layer_1], axis=3)
-    convolution_layer_11 = Conv3D(32, (3, 3, 3), activation='relu', padding='same')(up_layer_11)
-    convolution_layer_11 = Conv3D(32, (3, 3, 3), activation='relu', padding='same')(convolution_layer_11)
+    convolution_layer_11 = concatenate([Conv3DTranspose(32, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_10), convolution_layer_1], axis=3)
+    convolution_layer_11 = Conv3D(32, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_11)
+    shortcut_11 = convolution_layer_11
+    convolution_layer_11 = Conv3D(32, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(1e-4))(convolution_layer_11)
+    convolution_layer_11 = Add()([shortcut_11, convolution_layer_11])
+    convolution_layer_11 = BatchNormalization()(convolution_layer_11)
+    convolution_layer_11_shape_3d = convolution_layer_11.shape
+    convolution_layer_11 = Reshape((convolution_layer_11_shape_3d[1], convolution_layer_11_shape_3d[2], convolution_layer_11_shape_3d[3] * convolution_layer_11_shape_3d[4]))(convolution_layer_11)
+    output_layer = Conv2D(self.n_features, (1, 1), activation='softmax', name='output_layer')(convolution_layer_11)
 
-    layer_shape_3d = convolution_layer_11.shape
-    convolution_layer_11 = Reshape((layer_shape_3d[1], layer_shape_3d[2], layer_shape_3d[3] * layer_shape_3d[4]))(convolution_layer_11)
-    output_layer_2 = Conv2D(self.n_features, (1, 1), activation='softmax', name='output_layer_2')(convolution_layer_11)
-    model = Model(inputs=[input_layer], outputs=[output_layer_2])
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3), loss={'output_layer_2': 'categorical_crossentropy'}, metrics=[tf.keras.metrics.MeanIoU(num_classes = self.n_features)])
+    model = Model(inputs=[input_layer], outputs=[output_layer])
+    learning_rate_scheduler = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=1e-3, decay_steps=10000, decay_rate=0.9)
+    model.compile(optimizer = tf.keras.optimizers.Adam(learning_rate = learning_rate_scheduler), loss={'output_layer': 'categorical_crossentropy'}, metrics=[tf.keras.metrics.MeanIoU(num_classes = self.n_features)])
+    checkpoint_cb = tf.keras.callbacks.ModelCheckpoint("best_model.h5", save_best_only=True)
     return model
 
   def train(self):
@@ -253,11 +299,10 @@ class U_Net:
         print("Layer-Wise Normalization...")
         X_normalized = self.Layer_Normalization(X)
         print("Layer-Wise Normalization Completed")
-      print("Data Augmentation...")
-      X_augmented, y_augmented = self.Spatial_Transform_Data_Augmentation(X_normalized, y, num_masks = self.num_masks)
-      print("Data Augmentation Completed")
-      print("Data Processing...")
-      X_processed, y_processed = self.DataPreprocessing(X_augmented, y_augmented)
+      else:
+        X_normalized = X
+      print("Prepare Data for Training, Validation & Testing...")
+      X_processed, y_processed = self.prepare_dataset_for_training(X_normalized, y)
       X_train, X_, y_train, y_ = train_test_split(X_processed, y_processed, train_size = 0.7, test_size = 0.3, random_state=1234)
       X_validation, X_test, y_validation, y_test = train_test_split(X_, y_, train_size = 0.7, test_size = 0.3, random_state=1234)
       self.X_train, self.X_validation, self.X_test = X_train, X_validation, X_test
@@ -288,6 +333,8 @@ class U_Net:
         print("Layer-Wise Normalization...")
         X_normalized = self.Layer_Normalization(new_data)
         print("Layer-Wise Normalization Completed")
+      else:
+        X_normalized = new_data
       X_, pca = self.run_PCA(image_cube = X_normalized, num_principal_components = self.num_components_to_keep)
       X_ = cv2.resize(X_, (self.reduced_size_x_y, self.reduced_size_x_y), interpolation = cv2.INTER_AREA)
       X_test = X_.reshape(-1, self.reduced_size_x_y, self.reduced_size_x_y, self.num_components_to_keep, 1)
@@ -309,23 +356,7 @@ class U_Net:
         self.y_test = np.load('y_test.npy')
         print("Testing Dataset Loaded")
       else:
-        print("Data Loading...")
-        X, y = self.DataLoader(self.dataset)
-        print("Data Loading Completed")
-        if self.layer_normalization == True:
-          print("Layer-Wise Normalization...")
-          X_normalized = self.Layer_Normalization(X)
-          print("Layer-Wise Normalization Completed")
-        print("Data Augmentation...")
-        X_augmented, y_augmented = self.Spatial_Transform_Data_Augmentation(X, y, num_masks = self.num_masks)
-        print("Data Augmentation Completed")
-        print("Data Processing...")
-        X_processed, y_processed = self.DataPreprocessing(X_augmented, y_augmented)
-        X_train, X_, y_train, y_ = train_test_split(X_processed, y_processed, train_size = 0.7, test_size = 0.3, random_state=1234)
-        X_validation, X_test, y_validation, y_test = train_test_split(X_, y_, train_size = 0.7, test_size = 0.3, random_state=1234)
-        self.X_train, self.X_validation, self.X_test = X_train, X_validation, X_test
-        self.y_train, self.y_validation, self.y_test = y_train, y_validation, y_test
-        print("Data Processing Completed")
+        print("Testing Begins...")
       prediction_result = unet.predict(self.X_test)
 
       prediction_ = np.zeros(shape=(self.X_test.shape[0], self.reduced_size_x_y, self.reduced_size_x_y))
@@ -340,9 +371,10 @@ class U_Net:
               prediction_encoded[i][j] = np.argmax(prediction_result[k][i][j])
         prediction = cv2.resize(prediction_encoded, (self.X_test[k].shape[1], self.X_test[k].shape[0]), interpolation = cv2.INTER_AREA)
         prediction_[k] = prediction
+      print("Testing Ends...")
       return prediction_, np.argmax(self.y_test, axis=-1)
 
-  def evaluation_metrics(self, ground_truth, prediction):
+  def evaluation_metrics(self, prediction, ground_truth):
     '''
     This function returns some evaluation metrics on the test/train dataset.
     '''
