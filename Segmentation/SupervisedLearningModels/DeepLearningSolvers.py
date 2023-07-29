@@ -343,7 +343,7 @@ class U_Net:
       for i in range(self.reduced_size_x_y):
         for j in range(self.reduced_size_x_y):
           index = np.argmax(prediction_result[0][i][j])
-          if prediction_result[0][i][j][index] < 0.85:
+          if prediction_result[0][i][j][index] < 0.95:
             prediction_encoded[i][j] = 0
           else:
             prediction_encoded[i][j] = np.argmax(prediction_result[0][i][j])
@@ -365,7 +365,7 @@ class U_Net:
         for i in range(self.reduced_size_x_y):
           for j in range(self.reduced_size_x_y):
             index = np.argmax(prediction_result[k][i][j])
-            if prediction_result[k][i][j][index] < 0.85:
+            if prediction_result[k][i][j][index] < 0.95:
               prediction_encoded[i][j] = 0
             else:
               prediction_encoded[i][j] = np.argmax(prediction_result[k][i][j])
