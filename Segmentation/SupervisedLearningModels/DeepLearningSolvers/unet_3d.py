@@ -5,7 +5,7 @@ from skimage.transform import resize
 from tensorflow.keras import regularizers
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, TimeDistributed, Conv3D, ConvLSTM3D, Reshape, concatenate, Conv2D, ConvLSTM2D, MaxPooling3D, Conv3DTranspose, Flatten, Dense, BatchNormalization, MaxPooling2D, Conv2DTranspose, Add, Activation
+from tensorflow.keras.layers import Input, Conv3D, Reshape, concatenate, Conv2D, MaxPooling3D, Conv3DTranspose, BatchNormalization, Add, Activation
 from tensorflow.keras.layers import Dropout
 from tensorflow.keras.callbacks import ModelCheckpoint
 from tensorflow.keras import backend as K
