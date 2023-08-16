@@ -11,7 +11,8 @@ from scipy.ndimage import rotate
 class utils:
   """
   Class for data generation, dataset loading, and other utility functions
-  Important Input:  test_ratio: train_test split ratio
+  Important Input:  dataset: dataset using (default FUSRP biodemical image 2023)
+                    test_ratio: train_test split ratio
                     window_size: training window size
                     num_epochs: number of epochs for training
                     num_components_to_keep: number of principal components to keep after PCA
@@ -56,8 +57,8 @@ class utils:
     '''
     data_path = os.path.join(os.getcwd(), '')
     if dataset == 'pavia_university':
-        Data = scipy.io.loadmat(os.path.join(data_path, 'PaviaU.mat'))['paviaU']
-        Ground_Truth = scipy.io.loadmat(os.path.join(data_path, 'PaviaU_GroundTruth.mat'))['paviaU_gt']
+        Data = scipy.io.loadmat(os.path.join(data_path, 'Dataset/PaviaU.mat'))['paviaU']
+        Ground_Truth = scipy.io.loadmat(os.path.join(data_path, 'Dataset/PaviaU_GroundTruth.mat'))['paviaU_gt']
     elif dataset == 'biomedical_image_2022':
         Data = scipy.io.loadmat(os.path.join(data_path, 'Dataset/BiomedicalDenoisedEyeData4Endmembers.mat'))['hyperspectral_image']
         Ground_Truth = scipy.io.loadmat(os.path.join(data_path, 'Dataset/BiomedicalDenoisedEyeData4Endmembers.mat'))['ground_truth']
