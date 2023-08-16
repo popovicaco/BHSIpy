@@ -192,8 +192,8 @@ class UNet:
       total_test_length = (self.utils.X_test.shape[0]//self.utils.batch_size)*self.utils.batch_size
       prediction_result = np.zeros(shape=(total_test_length, self.utils.resized_x_y, self.utils.resized_x_y, self.utils.n_features))
       for i in range(0, total_test_length, self.utils.batch_size):
-        print("Testing sample from:", i, "to:", i+4)
-        prediction_result[i:i+4] = unet.predict(self.utils.X_test[i:i+4])
+        print("Testing sample from:", i, "to:", i+self.utils.batch_size)
+        prediction_result[i:i+self.utils.batch_size] = unet.predict(self.utils.X_test[i:i+self.utils.batch_size])
 
       prediction_ = np.zeros(shape=(total_test_length, self.utils.resized_x_y, self.utils.resized_x_y))
       for k in range(total_test_length):
