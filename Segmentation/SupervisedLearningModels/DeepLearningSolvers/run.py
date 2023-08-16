@@ -1,41 +1,25 @@
-from model import UNet
 from utils import utils
+from unet_3d import UNet
 from absl import app
 from absl import flags
 
-flags.DEFINE_string(
-    'dataset', 'biomedical_image', 'training dataset (Default summer 2022 FUSRP eye image dataset (120*210))')
-flags.DEFINE_integer(
-    'train_sim', 200, 'training epochs (Default 200 epochs)')
-flags.DEFINE_float(
-    'test_ratio', 0.3, 'train test split ratio (Default 30%)')
-flags.DEFINE_integer(
-    'batch_size', 4, 'batch_size (Default 4)')
-flags.DEFINE_integer(
-    'resized_x_y', 256, 'resize original HSI image x,y dimension (Default 256*256 pixels)')
-flags.DEFINE_integer(
-    'num_features', 5, 'number of features to be classified (Default 5)')
-flags.DEFINE_integer(
-    'num_masks', 10, 'number of masks applied on each augmented image (Default 10)')
-flags.DEFINE_integer(
-    'mask_length', 225, 'mask length of each squared mask (Default 225)')
-flags.DEFINE_integer(
-    'num_components_to_keep', 10, 'number of principle component to keep (Default 10)')
-flags.DEFINE_boolean(
-    'pre_load_dataset', False, 'If use pre_loaded dataset (Default False)')
-flags.DEFINE_boolean(
-    'layer_standardization', True, 'If use layer_standardization (Default True)')
-flags.DEFINE_boolean(
-    'eval_only', False, 'If eval_only (Default False)')
-flags.DEFINE_integer(
-    'max_pca_iterations', 30, 'maximum number of PCA iterations (Default 30)')
-flags.DEFINE_boolean(
-    'continue_training', False, 'If continue training from where it is left off (Default False)')
-flags.DEFINE_float(
-    'dropout_rate', 0.5, 'dropout rate (Default 50%)')
-flags.DEFINE_float(
-    'PCA_variance_threshold', 0.995, 'PCA Variance Threshold (Default 99.5%)')
-    
+flags.DEFINE_string('dataset', 'biomedical_image_2023', 'training dataset (Default summer 2023 FUSRP eye image dataset (dimension 210*210))')
+flags.DEFINE_integer('train_sim', 200, 'training epochs (Default 200 epochs)')
+flags.DEFINE_float('test_ratio', 0.3, 'train test split ratio (Default 30%)')
+flags.DEFINE_integer('batch_size', 4, 'batch_size (Default 4)')
+flags.DEFINE_integer('resized_x_y', 256, 'resize original HSI image x,y dimension (Default 256*256 pixels)')
+flags.DEFINE_integer('num_features', 4, 'number of features to be classified (Default 4)')
+flags.DEFINE_integer('num_masks', 10, 'number of masks applied on each augmented image (Default 10)')
+flags.DEFINE_integer('mask_length', 205, 'mask length of each squared mask (Default 205)')
+flags.DEFINE_integer('num_components_to_keep', 3, 'number of principle component to keep (Default 3)')
+flags.DEFINE_boolean('pre_load_dataset', False, 'If use pre_loaded dataset (Default False)')
+flags.DEFINE_boolean('layer_standardization', True, 'If use layer_standardization (Default True)')
+flags.DEFINE_boolean('eval_only', False, 'If eval_only (Default False)')
+flags.DEFINE_integer('max_pca_iterations', 30, 'maximum number of PCA iterations (Default 30)')
+flags.DEFINE_boolean('continue_training', False, 'If continue training from where it is left off (Default False)')
+flags.DEFINE_float('dropout_rate', 0.5, 'dropout rate (Default 50%)')
+flags.DEFINE_float('PCA_variance_threshold', 0.995, 'PCA Variance Threshold (Default 99.5%)')
+
 FLAGS = flags.FLAGS
 
 def main(argv):
