@@ -21,87 +21,57 @@ class UNet:
   """
   def __init__(self, utils):
     self.utils = utils
-
+  
+  def encoding_layers_building_blocks(self, units, in_layer, pooling_layer=True):
+      '''
+      This method returns the encoding layers building blocks (i.e, downsampling layers)
+      '''
+      convolution_layer = Conv3D(units, (3, 3, 3), padding='same', kernel_initializer='he_normal')(in_layer)
+      convolution_layer = BatchNormalization()(convolution_layer)
+      convolution_layer = Activation('relu')(convolution_layer)
+      convolution_layer = Conv3D(units, (3, 3, 3), padding='same', kernel_initializer='he_normal')(convolution_layer)
+      convolution_layer = BatchNormalization()(convolution_layer)
+      convolution_layer = Activation('relu')(convolution_layer)
+      if pooling_layer == True:
+          out_layer = MaxPooling3D(pool_size=(2, 2, 2), padding='same')(convolution_layer)
+          return out_layer, convolution_layer
+      else:
+          return convolution_layer
+    
+  def decoding_layers_building_blocks(self, units, in_layer, concat_layer):
+      '''
+      This method returns the decoding layers building blocks (i.e, upsampling layers)
+      '''
+      upsampling_convolution_layer = concatenate([Conv3DTranspose(units, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_normal')(in_layer), concat_layer], axis=3)
+      convolution_layer = Conv3D(units, (3, 3, 3), padding='same', kernel_initializer='he_normal')(upsampling_convolution_layer)
+      convolution_layer = BatchNormalization()(convolution_layer)
+      convolution_layer = Activation('relu')(convolution_layer)
+      convolution_layer = Conv3D(units, (3, 3, 3), padding='same', kernel_initializer='he_normal')(convolution_layer)
+      convolution_layer = BatchNormalization()(convolution_layer)
+      out_layer = Activation('relu')(convolution_layer)
+      return out_layer
+      
   def build_3d_unet(self):
     '''
-    This function is a tensorflow realization of a newly designed Bayesian Residual 3D U-Net model. 
+    This function is a tensorflow realization of a newly designed simple baseline 3D U-Net model. 
     '''
     input_layer = Input((self.utils.resized_x_y, self.utils.resized_x_y, self.utils.num_components_to_keep, 1))
-
-    convolution_layer_1 = Conv3D(64, (3, 3, 3), padding='same', kernel_initializer='he_normal')(input_layer)
-    convolution_layer_1 = BatchNormalization()(convolution_layer_1)
-    convolution_layer_1 = Activation('relu')(convolution_layer_1)
-    convolution_layer_1 = Conv3D(64, (3, 3, 3), padding='same', kernel_initializer='he_normal')(convolution_layer_1)
-    convolution_layer_1 = BatchNormalization()(convolution_layer_1)
-    convolution_layer_1 = Activation('relu')(convolution_layer_1)
-    pooling_layer_1 = MaxPooling3D(pool_size=(2, 2, 2), padding='same')(convolution_layer_1)
-
-    convolution_layer_2 = Conv3D(128, (3, 3, 3), padding='same', kernel_initializer='he_normal')(pooling_layer_1)
-    convolution_layer_2 = BatchNormalization()(convolution_layer_2)
-    convolution_layer_2 = Activation('relu')(convolution_layer_2)
-    convolution_layer_2 = Conv3D(128, (3, 3, 3), padding='same', kernel_initializer='he_normal')(convolution_layer_2)
-    convolution_layer_2 = BatchNormalization()(convolution_layer_2)
-    convolution_layer_2 = Activation('relu')(convolution_layer_2)
-    pooling_layer_2 = MaxPooling3D(pool_size=(2, 2, 2), padding='same')(convolution_layer_2)
-    
-    convolution_layer_3 = Conv3D(256, (3, 3, 3), padding='same', kernel_initializer='he_normal')(pooling_layer_2)
-    convolution_layer_3 = BatchNormalization()(convolution_layer_3)
-    convolution_layer_3 = Activation('relu')(convolution_layer_3)
-    convolution_layer_3 = Conv3D(256, (3, 3, 3), padding='same', kernel_initializer='he_normal')(convolution_layer_3)
-    convolution_layer_3 = BatchNormalization()(convolution_layer_3)
-    convolution_layer_3 = Activation('relu')(convolution_layer_3)
-    pooling_layer_3 = MaxPooling3D(pool_size=(2, 2, 2), padding='same')(convolution_layer_3)
-
-    convolution_layer_4 = Conv3D(512, (3, 3, 3), padding='same', kernel_initializer='he_normal')(pooling_layer_3)
-    convolution_layer_4 = BatchNormalization()(convolution_layer_4)
-    convolution_layer_4 = Activation('relu')(convolution_layer_4)
-    convolution_layer_4 = Conv3D(512, (3, 3, 3), padding='same', kernel_initializer='he_normal')(convolution_layer_4)
-    convolution_layer_4 = BatchNormalization()(convolution_layer_4)
-    convolution_layer_4 = Activation('relu')(convolution_layer_4)
-    pooling_layer_4 = MaxPooling3D(pool_size=(2, 2, 2), padding='same')(convolution_layer_4)
-    
-    convolution_layer_5 = Conv3D(1024, (3, 3, 3), padding='same', kernel_initializer='he_normal')(pooling_layer_4)
-    convolution_layer_5 = BatchNormalization()(convolution_layer_5)
-    convolution_layer_5 = Activation('relu')(convolution_layer_5)
-    convolution_layer_5 = Conv3D(1024, (3, 3, 3), padding='same', kernel_initializer='he_normal')(convolution_layer_5)
-    convolution_layer_5 = BatchNormalization()(convolution_layer_5)
-    convolution_layer_5 = Activation('relu')(convolution_layer_5)
-
-    convolution_layer_6 = concatenate([Conv3DTranspose(512, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_normal')(convolution_layer_5), convolution_layer_4], axis=3)
-    convolution_layer_6 = Conv3D(512, (3, 3, 3), padding='same', kernel_initializer='he_normal')(convolution_layer_6)
-    convolution_layer_6 = BatchNormalization()(convolution_layer_6)
-    convolution_layer_6 = Activation('relu')(convolution_layer_6)
-    convolution_layer_6 = Conv3D(512, (3, 3, 3), padding='same', kernel_initializer='he_normal')(convolution_layer_6)
-    convolution_layer_6 = BatchNormalization()(convolution_layer_6)
-    convolution_layer_6 = Activation('relu')(convolution_layer_6)
-
-    convolution_layer_7 = concatenate([Conv3DTranspose(256, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_normal')(convolution_layer_6), convolution_layer_3], axis=3)
-    convolution_layer_7 = Conv3D(256, (3, 3, 3), padding='same', kernel_initializer='he_normal')(convolution_layer_7)
-    convolution_layer_7 = BatchNormalization()(convolution_layer_7)
-    convolution_layer_7 = Activation('relu')(convolution_layer_7)
-    convolution_layer_7 = Conv3D(256, (3, 3, 3), padding='same', kernel_initializer='he_normal')(convolution_layer_7)
-    convolution_layer_7 = BatchNormalization()(convolution_layer_7)
-    convolution_layer_7 = Activation('relu')(convolution_layer_7)
-
-    convolution_layer_8 = concatenate([Conv3DTranspose(128, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_normal')(convolution_layer_7), convolution_layer_2], axis=3)
-    convolution_layer_8 = Conv3D(128, (3, 3, 3), padding='same', kernel_initializer='he_normal')(convolution_layer_8)
-    convolution_layer_8 = BatchNormalization()(convolution_layer_8)
-    convolution_layer_8 = Activation('relu')(convolution_layer_8)
-    convolution_layer_8 = Conv3D(128, (3, 3, 3), padding='same', kernel_initializer='he_normal')(convolution_layer_8)
-    convolution_layer_8 = BatchNormalization()(convolution_layer_8)
-    convolution_layer_8 = Activation('relu')(convolution_layer_8)
-    
-    convolution_layer_9 = concatenate([Conv3DTranspose(64, (2, 2, 2), strides=(2, 2, 2), padding='same', kernel_initializer='he_normal')(convolution_layer_8), convolution_layer_1], axis=3)
-    convolution_layer_9 = Conv3D(64, (3, 3, 3), padding='same', kernel_initializer='he_normal')(convolution_layer_9)
-    convolution_layer_9 = BatchNormalization()(convolution_layer_9)
-    convolution_layer_9 = Activation('relu')(convolution_layer_9)
-    convolution_layer_9 = Conv3D(64, (3, 3, 3), padding='same', kernel_initializer='he_normal')(convolution_layer_9)
-    convolution_layer_9 = BatchNormalization()(convolution_layer_9)
-    convolution_layer_9 = Activation('relu')(convolution_layer_9)
-
-    convolution_layer_9_shape_3d = convolution_layer_9.shape
-    convolution_layer_9 = Reshape((convolution_layer_9_shape_3d[1], convolution_layer_9_shape_3d[2], convolution_layer_9_shape_3d[3] * convolution_layer_9_shape_3d[4]))(convolution_layer_9)
-    output_layer = Conv2D(self.utils.n_features, (1, 1), activation='softmax', name='output_layer')(convolution_layer_9)
+    # down sampling blocks
+    down_sampling_output_layer_1, down_sampling_convolution_layer_1 = self.encoding_layers_building_blocks(64, input_layer)
+    down_sampling_output_layer_2, down_sampling_convolution_layer_2 = self.encoding_layers_building_blocks(128, down_sampling_output_layer_1)
+    down_sampling_output_layer_3, down_sampling_convolution_layer_3 = self.encoding_layers_building_blocks(256, down_sampling_output_layer_2)
+    down_sampling_output_layer_4, down_sampling_convolution_layer_4 = self.encoding_layers_building_blocks(512, down_sampling_output_layer_3)
+    # encoding blocks
+    encoding_space_output_layer = self.encoding_layers_building_blocks(1024, down_sampling_output_layer_4, pooling_layer=False)
+    # up sampling blocks
+    up_sampling_output_layer_1 = self.decoding_layers_building_blocks(512, encoding_space_output_layer, down_sampling_convolution_layer_4)
+    up_sampling_output_layer_2 = self.decoding_layers_building_blocks(256, up_sampling_output_layer_1, down_sampling_convolution_layer_3)
+    up_sampling_output_layer_3 = self.decoding_layers_building_blocks(128, up_sampling_output_layer_2, down_sampling_convolution_layer_2)
+    up_sampling_output_layer_4 = self.decoding_layers_building_blocks(64, up_sampling_output_layer_3, down_sampling_convolution_layer_1)
+    # classification block
+    up_sampling_output_layer_4_shape = up_sampling_output_layer_4.shape
+    up_sampling_output_layer_4_2d_reshaped = Reshape((up_sampling_output_layer_4_shape[1], up_sampling_output_layer_4_shape[2], up_sampling_output_layer_4_shape[3] * up_sampling_output_layer_4_shape[4]))(up_sampling_output_layer_4)
+    output_layer = Conv2D(self.utils.n_features, (1, 1), activation='softmax', name='output_layer')(up_sampling_output_layer_4_2d_reshaped)
 
     model = Model(inputs=[input_layer], outputs=[output_layer])
     learning_rate_scheduler = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=1e-3, decay_steps=20000, decay_rate=0.99)
