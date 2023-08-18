@@ -11,8 +11,7 @@ from scipy.ndimage import rotate
 class utils:
   """
   Class for data generation, dataset loading, and other utility functions
-  Important Input:  dataset: dataset using (default FUSRP biodemical image 2023)
-                    test_ratio: train_test split ratio
+  Important Input:  test_ratio: train_test split ratio
                     window_size: training window size
                     num_epochs: number of epochs for training
                     num_components_to_keep: number of principal components to keep after PCA
@@ -24,11 +23,14 @@ class utils:
                     pre_load_dataset: if previously genereated data for training and testing
                     layer_standardization: if layer-wise standardize the dataset
                     max_pca_iterations: maximum number of PCA iterations to keep a threshold (e.g, 99.5%) amount of variance
-                    PCA_variance_threshold: the threshold amount of variance being kept after PCA
+                    PCA_variance_threshold: the threshold amount of variance being kept after PCA (e.g, 99.5%)
+                    svd_denoising: if use svd to denoise raw input image
+                    n_svd: number of svd components to keep
+                    svd_denoise_threshold: the denoise threshold
                     dropout_rate: dropout rate used in Bayesian MC dropout layers
                     continue_training: training from where it left off
   """
-  def __init__(self, dataset = 'biomedical_image_2023', test_ratio = 0.3, num_epochs = 200, num_components_to_keep = 3, resized_x_y = 256, n_features = 4, batch_size = 4, mask_length = 205, num_masks = 10, pre_load_dataset = False, layer_standardization = True, max_pca_iterations = 30, PCA_variance_threshold = 0.995, dropout_rate = 0.5, continue_training = False):
+  def __init__(self, dataset = 'biomedical_image_2023', test_ratio = 0.3, num_epochs = 200, num_components_to_keep = 3, resized_x_y = 256, n_features = 4, batch_size = 4, mask_length = 205, num_masks = 10, pre_load_dataset = False, layer_standardization = True, max_pca_iterations = 30, PCA_variance_threshold = 0.995, svd_denoising = True, n_svd = 1, svd_denoise_threshold = 0.999, dropout_rate = 0.5, continue_training = False):
     self.dataset = dataset
     self.test_ratio = test_ratio
     self.num_epochs = num_epochs
@@ -42,6 +44,9 @@ class utils:
     self.layer_standardization = layer_standardization
     self.max_pca_iterations = max_pca_iterations
     self.PCA_variance_threshold = PCA_variance_threshold
+    self.svd_denoising = svd_denoising
+    self.n_svd = n_svd
+    self.svd_denoise_threshold = svd_denoise_threshold
     self.dropout_rate = dropout_rate
     self.continue_training = continue_training
     self.X_train = None
@@ -57,8 +62,8 @@ class utils:
     '''
     data_path = os.path.join(os.getcwd(), '')
     if dataset == 'pavia_university':
-        Data = scipy.io.loadmat(os.path.join(data_path, 'Dataset/PaviaU.mat'))['paviaU']
-        Ground_Truth = scipy.io.loadmat(os.path.join(data_path, 'Dataset/PaviaU_GroundTruth.mat'))['paviaU_gt']
+        Data = scipy.io.loadmat(os.path.join(data_path, 'PaviaU.mat'))['paviaU']
+        Ground_Truth = scipy.io.loadmat(os.path.join(data_path, 'PaviaU_GroundTruth.mat'))['paviaU_gt']
     elif dataset == 'biomedical_image_2022':
         Data = scipy.io.loadmat(os.path.join(data_path, 'Dataset/BiomedicalDenoisedEyeData4Endmembers.mat'))['hyperspectral_image']
         Ground_Truth = scipy.io.loadmat(os.path.join(data_path, 'Dataset/BiomedicalDenoisedEyeData4Endmembers.mat'))['ground_truth']
@@ -67,7 +72,33 @@ class utils:
         Ground_Truth = np.load(os.path.join(data_path, 'Dataset/new_ground_truth.npy')).astype(np.uint8)
     return Data, Ground_Truth
 
-  def layer_standardization(self, hyperspectral_image):
+  def svd_denoise(self, data, n_svd = 4, verbose = False):    
+    '''
+    Description:
+        Performs SVD Denoising for a 3D NumPy Matrix
+    ===========================================
+    Parameters:
+        data - (nx, ny, nz) NumPy Matrix
+    ===========================================
+    Returns:
+        denoised_data - (nx, ny, nz) NumPy Matrix
+    '''
+    if n_svd == 0:
+        return data
+    nx,ny,nb = data.shape
+    reshaped_2d_data = data.reshape((data.shape[0]*data.shape[1],data.shape[2])).T
+    u,s,v = np.linalg.svd(reshaped_2d_data, full_matrices=False)
+    u_truncated = u[:, :n_svd]
+    s_truncated = np.diag(s[:n_svd])
+    v_truncated = v[:n_svd, :]
+    denoised_mtx = u_truncated @ s_truncated @ v_truncated
+    denoised_data = denoised_mtx.T.reshape((nx,ny,nb))
+    if verbose:
+        loss = np.sqrt(((data - denoised_data)**2).sum())
+        print(f'The reconstruction error is {loss}')
+    return denoised_data, s
+
+  def run_layer_standardization(self, hyperspectral_image):
     '''
     This method performs layer-wise standardization on the input data.
     '''
@@ -89,20 +120,25 @@ class utils:
     new_cube = np.reshape(new_cube, (image_cube.shape[0], image_cube.shape[1], num_principal_components))
     return new_cube, pca
 
-  def DataPreprocessing(self, X, y):
+  def DataPreprocessing(self, X, y, override_variance_threshold=False):
     '''
     This Method internally preprocess the input dataset (and its ground truths) to its PCA reduced format.
     '''
     n_features = self.n_features
     X_, pca = self.run_PCA(image_cube = X, num_principal_components = self.num_components_to_keep)
     total_variance_explained = sum(pca.explained_variance_ratio_)
-    for i in range(self.max_pca_iterations):
-        if total_variance_explained <= self.PCA_variance_threshold:
-            self.num_components_to_keep += 1
-            X_, pca = self.run_PCA(image_cube = X, num_principal_components = self.num_components_to_keep)
-            total_variance_explained = sum(pca.explained_variance_ratio_)
-        else:
-            break
+    num_components_to_keep = self.num_components_to_keep
+    if override_variance_threshold:
+        pass
+    else:
+        for i in range(self.max_pca_iterations):
+            if total_variance_explained <= self.PCA_variance_threshold:
+                self.num_components_to_keep += 1
+                X_, pca = self.run_PCA(image_cube = X, num_principal_components = self.num_components_to_keep)
+                total_variance_explained = sum(pca.explained_variance_ratio_)
+            else:
+                self.num_components_to_keep = num_components_to_keep
+                break
     X_after_preprocessed = cv2.resize(X_, (self.resized_x_y, self.resized_x_y), interpolation = cv2.INTER_LANCZOS4)
     ground_truth_after_preprocessed = cv2.resize(y, (self.resized_x_y, self.resized_x_y), interpolation = cv2.INTER_NEAREST)
     return X_after_preprocessed, ground_truth_after_preprocessed
@@ -143,7 +179,7 @@ class utils:
 
   def DataProcessing(self, X, y):
     '''
-    This Method internally preprocess the input dataset to its 3-D Hyper UNet accepted format.
+    one-hot encoding the input dataset.
     '''
     n_features = self.n_features
     feature_encoded_data = np.zeros((X.shape[0], X.shape[1], n_features))
@@ -158,16 +194,18 @@ class utils:
     '''
     This method prepares dataset for training the 3-D unet in its batch_size format.
     '''
+    print("Spatial Transformation Data Augmentation...")
     X_augmented, y_augmented = self.Spatial_Transform_Data_Augmentation(X, y, num_masks = self.num_masks, mask_length = self.mask_length)
+    print("Spatial Transformation Data Augmentation Completed")
+    print("PCA Dimensionality Reduction & One-Hot Encoded Data...")
     X_after_preprocessed, ground_truth_after_preprocessed = self.DataPreprocessing(X_augmented[0], y_augmented[0])
-    print("Number of principal components kept: ", self.num_components_to_keep)
     X_after_processed, y_after_processed = self.DataProcessing(X_after_preprocessed, ground_truth_after_preprocessed)
     for i in range(1, X_augmented.shape[0]):
-      X_, y_ = self.DataPreprocessing(X_augmented[i], y_augmented[i])
+      X_, y_ = self.DataPreprocessing(X_augmented[i], y_augmented[i], override_variance_threshold=True)
       X_, y_ = self.DataProcessing(X_, y_)
       X_after_processed = np.concatenate((X_after_processed, X_), axis=0)
       y_after_processed = np.concatenate((y_after_processed, y_), axis=0)
-
+    print("PCA Dimensionality Reduction & One-Hot Encoded Data Completed")
     return X_after_processed, y_after_processed
 
   def evaluation_metrics(self, prediction, ground_truth):
