@@ -16,6 +16,9 @@ flags.DEFINE_boolean('pre_load_dataset', False, 'If use pre_loaded dataset (Defa
 flags.DEFINE_boolean('layer_standardization', True, 'If use layer_standardization (Default True)')
 flags.DEFINE_boolean('eval_only', False, 'If eval_only (Default False)')
 flags.DEFINE_integer('max_pca_iterations', 30, 'maximum number of PCA iterations (Default 30)')
+flags.DEFINE_boolean('svd_denoising', True, 'If use svd denoise the raw datacube (Default True)')
+flags.DEFINE_integer('n_svd', 4, 'initial number of SVD components (Default 4)')
+flags.DEFINE_float('svd_denoise_threshold', 0.999, 'SVD Denoise Variance Threshold (Default 99.9%)')
 flags.DEFINE_boolean('continue_training', False, 'If continue training from where it is left off (Default False)')
 flags.DEFINE_float('dropout_rate', 0.5, 'dropout rate (Default 50%)')
 flags.DEFINE_float('PCA_variance_threshold', 0.995, 'PCA Variance Threshold (Default 99.5%)')
@@ -23,7 +26,7 @@ flags.DEFINE_float('PCA_variance_threshold', 0.995, 'PCA Variance Threshold (Def
 FLAGS = flags.FLAGS
 
 def main(argv):
-    Utils = utils(dataset = FLAGS.dataset, num_epochs=FLAGS.train_sim, resized_x_y=FLAGS.resized_x_y, n_features=FLAGS.num_features, num_masks = FLAGS.num_masks, mask_length = FLAGS.mask_length, batch_size = FLAGS.batch_size, pre_load_dataset = FLAGS.pre_load_dataset, layer_standardization = FLAGS.layer_standardization, num_components_to_keep = FLAGS.num_components_to_keep, max_pca_iterations = FLAGS.max_pca_iterations, continue_training = FLAGS.continue_training, dropout_rate = FLAGS.dropout_rate, PCA_variance_threshold = FLAGS.PCA_variance_threshold)
+    Utils = utils(dataset = FLAGS.dataset, test_ratio = FLAGS.test_ratio, num_epochs=FLAGS.train_sim, resized_x_y=FLAGS.resized_x_y, n_features=FLAGS.num_features, num_masks = FLAGS.num_masks, mask_length = FLAGS.mask_length, batch_size = FLAGS.batch_size, pre_load_dataset = FLAGS.pre_load_dataset, layer_standardization = FLAGS.layer_standardization, num_components_to_keep = FLAGS.num_components_to_keep, max_pca_iterations = FLAGS.max_pca_iterations, svd_denoising = FLAGS.svd_denoising, n_svd=FLAGS.n_svd, svd_denoise_threshold=FLAGS.svd_denoise_threshold, continue_training = FLAGS.continue_training, dropout_rate = FLAGS.dropout_rate, PCA_variance_threshold = FLAGS.PCA_variance_threshold)
     Model_UNet = UNet(utils = Utils)
 
     if FLAGS.eval_only:
