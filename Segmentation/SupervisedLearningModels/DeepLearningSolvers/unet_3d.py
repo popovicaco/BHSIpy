@@ -2,11 +2,8 @@ from utils import utils
 import tensorflow as tf
 import tensorflow_probability as tfp
 from skimage.transform import resize
-from tensorflow.keras import regularizers
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, Conv3D, Reshape, concatenate, Conv2D, MaxPooling3D, Conv3DTranspose, BatchNormalization, Add, Activation
-from tensorflow.keras.layers import Dropout
+from tensorflow.keras.layers import Input, Conv3D, Reshape, concatenate, Conv2D, MaxPooling3D, Conv3DTranspose, BatchNormalization, Add, Activation, Dropout
 from tensorflow.keras.callbacks import ModelCheckpoint
 from tensorflow.keras import backend as K
 from tensorflow.keras.models import load_model
@@ -91,18 +88,34 @@ class UNet:
       print("Training and Validation Dataset Loaded")
     else:
       print("Data Loading...")
-      X, y = self.utils.DataLoader(self.dataset)
+      X, y = self.utils.DataLoader(self.utils.dataset)
       print("Data Loading Completed")
+      if self.utils.svd_denoising == True:
+        print("Raw Data Denoising...")
+        denoised_data, variance_matrix = self.utils.svd_denoise(X, n_svd = self.utils.n_svd)
+        # Compute cumulative variance explained
+        cumulative_variance = np.cumsum(variance_matrix**2) / np.sum(variance_matrix**2)
+        while True:
+          if cumulative_variance[self.utils.n_svd - 1] <= self.utils.svd_denoise_threshold:
+              self.utils.n_svd += 1
+              denoised_data, variance_matrix = self.utils.svd_denoise(X, n_svd = self.utils.n_svd)
+              cumulative_variance = np.cumsum(variance_matrix**2) / np.sum(variance_matrix**2)
+          else:
+              X = denoised_data
+              break
+        print("Raw Data Denoise Completed")
+      else:
+        pass
       if self.utils.layer_standardization == True:
         print("Layer-Wise Standardization...")
-        X_normalized = self.utils.layer_standardization(X)
+        X_normalized = self.utils.run_layer_standardization(X)
         print("Layer-Wise Standardization Completed")
       else:
         X_normalized = X
       print("Prepare Data for Training, Validation & Testing...")
       X_processed, y_processed = self.utils.prepare_dataset_for_training(X_normalized, y)
-      X_train, X_, y_train, y_ = train_test_split(X_processed, y_processed, train_size = 1 - self.test_ratio, test_size = self.test_ratio, random_state=1234)
-      X_validation, X_test, y_validation, y_test = train_test_split(X_, y_, train_size = 1 - self.test_ratio, test_size = self.test_ratio, random_state=1234)
+      X_train, X_, y_train, y_ = train_test_split(X_processed, y_processed, train_size = 1 - self.utils.test_ratio, test_size = self.utils.test_ratio, random_state=1234)
+      X_validation, X_test, y_validation, y_test = train_test_split(X_, y_, train_size = 1 - self.utils.test_ratio, test_size = self.utils.test_ratio, random_state=1234)
       self.utils.X_train, self.utils.X_validation, self.utils.X_test = X_train, X_validation, X_test
       self.utils.y_train, self.utils.y_validation, self.utils.y_test = y_train, y_validation, y_test
       np.save('X_train.npy', self.utils.X_train)
@@ -134,9 +147,25 @@ class UNet:
     unet.load_weights('best_model.h5')
     if new_data is not None:
       n_features = self.utils.n_features
+      if self.utils.svd_denoising == True:
+          print("Raw Data Denoising...")
+          denoised_data, variance_matrix = self.utils.svd_denoise(new_data, n_svd = self.utils.n_svd)
+          # Compute cumulative variance explained
+          cumulative_variance = np.cumsum(variance_matrix**2) / np.sum(variance_matrix**2)
+          while True:
+            if cumulative_variance[self.utils.n_svd - 1] <= self.utils.svd_denoise_threshold:
+              self.utils.n_svd += 1
+              denoised_data, variance_matrix = self.utils.svd_denoise(new_data, n_svd = self.utils.n_svd)
+              cumulative_variance = np.cumsum(variance_matrix**2) / np.sum(variance_matrix**2)
+            else:
+              new_data = denoised_data
+              break
+          print("Raw Data Denoise Completed")
+      else:
+          pass
       if self.utils.layer_standardization == True:
         print("Layer-Wise Standardization...")
-        X_normalized = self.utils.layer_standardization(new_data)
+        X_normalized = self.utils.run_layer_standardization(new_data)
         print("Layer-Wise Standardization Completed")
       else:
         X_normalized = new_data
