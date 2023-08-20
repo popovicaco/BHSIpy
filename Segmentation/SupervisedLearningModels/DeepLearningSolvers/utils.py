@@ -30,7 +30,7 @@ class utils:
                     dropout_rate: dropout rate used in Bayesian MC dropout layers
                     continue_training: training from where it left off
   """
-  def __init__(self, dataset = 'biomedical_image_2023', test_ratio = 0.3, num_epochs = 200, num_components_to_keep = 3, resized_x_y = 256, n_features = 4, batch_size = 4, mask_length = 205, num_masks = 10, pre_load_dataset = False, layer_standardization = True, max_pca_iterations = 30, PCA_variance_threshold = 0.995, svd_denoising = True, n_svd = 1, svd_denoise_threshold = 0.999, dropout_rate = 0.5, continue_training = False):
+  def __init__(self, dataset = 'biomedical_image_2023', test_ratio = 0.3, num_epochs = 200, num_components_to_keep = 3, resized_x_y = 256, n_features = 4, batch_size = 4, mask_length = 205, num_masks = 10, pre_load_dataset = False, layer_standardization = True, max_pca_iterations = 30, PCA_variance_threshold = 0.995, svd_denoising = True, n_svd = 1, svd_denoise_threshold = 0.999, dropout_rate = 0.5, continue_training = False, deep_supervision = True):
     self.dataset = dataset
     self.test_ratio = test_ratio
     self.num_epochs = num_epochs
@@ -49,6 +49,7 @@ class utils:
     self.svd_denoise_threshold = svd_denoise_threshold
     self.dropout_rate = dropout_rate
     self.continue_training = continue_training
+    self.deep_supervision = deep_supervision
     self.X_train = None
     self.X_validation = None
     self.X_test = None
