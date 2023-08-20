@@ -129,13 +129,13 @@ class UNet:
         # Custom objects, if any (you might need to define them depending on the custom loss, metrics, etc.)
         custom_objects = {'MeanIoU': tf.keras.metrics.MeanIoU}
         # Load the full model, including optimizer state
-        unet = load_model('best_model.h5', custom_objects=custom_objects)
+        unet = load_model('models/unet_best_model.h5', custom_objects=custom_objects)
         unet.summary()
     else:
         unet = self.build_3d_unet()
         unet.summary()
     print("Training Begins...")
-    unet.fit(x = self.utils.X_train, y = self.utils.y_train, batch_size = self.utils.batch_size, epochs=self.utils.num_epochs, validation_data=(self.utils.X_validation, self.utils.y_validation), callbacks=[tf.keras.callbacks.ModelCheckpoint("best_model.h5", save_best_only=True), tf.keras.callbacks.EarlyStopping(patience=200, restore_best_weights=True)])
+    unet.fit(x = self.utils.X_train, y = self.utils.y_train, batch_size = self.utils.batch_size, epochs=self.utils.num_epochs, validation_data=(self.utils.X_validation, self.utils.y_validation), callbacks=[tf.keras.callbacks.ModelCheckpoint("models/unet_best_model.h5", save_best_only=True), tf.keras.callbacks.EarlyStopping(patience=200, restore_best_weights=True)])
     print("Training Ended, Model Saved!")
     return None
 
@@ -144,7 +144,7 @@ class UNet:
     This method will take a pre-trained model and make corresponding predictions.
     '''
     unet = self.build_3d_unet()
-    unet.load_weights('best_model.h5')
+    unet.load_weights('models/unet_best_model.h5')
     if new_data is not None:
       n_features = self.utils.n_features
       if self.utils.svd_denoising == True:
