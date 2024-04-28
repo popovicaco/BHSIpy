@@ -21,10 +21,6 @@ spectral==0.22.4
 tensorflow==2.9.1  
 
 ---
-# Acknowledgments
-
-This package was created by Aleksandar Popovic at Toronto Metropolitan University, Xuanze Li at University of Toronto and Hannah Johnson at Ohio State University, under the supervision of Dr. Na Yu and Dr. You Liang of Toronto Metropolitan University. This project was part of the Fields Undergraduate Summer Research Program in Toronto, Ontario. 
-
 ---
 # Presentation Link
 [Fields Presentation](http://www.fields.utoronto.ca/talks/Project-9-Spectral-Unmixing-Biomedical-Hyperspectral-Imaging-0)
